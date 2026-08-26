@@ -102,11 +102,7 @@ func (s Service) RecordObservation(ctx context.Context, actor domain.Principal, 
 		if application.Status != domain.ApplicationRunning && !interrupted {
 			return fmt.Errorf("application %s is %s: %w", application.ID, application.Status, apperror.ErrInvalidState)
 		}
-		recovery := true
-		if application.Status == domain.ApplicationInterrupted {
-			recovery = true
-		}
-		if err := batch.Accepts(now, recovery); err != nil {
+		if err := batch.Accepts(now, interrupted); err != nil {
 			return err
 		}
 		if input.ObservedAt.Before(batch.OpensAt) || input.ObservedAt.After(now) {
