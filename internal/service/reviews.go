@@ -222,6 +222,9 @@ func (s Service) AdoptConclusion(ctx context.Context, actor domain.Principal, in
 		if application.Region != input.Region {
 			return fmt.Errorf("conclusion region differs from adoption region: %w", apperror.ErrConflict)
 		}
+		if application.Status == domain.ApplicationAdopted {
+			return fmt.Errorf("application %s already adopted: %w", application.ID, apperror.ErrInvalidState)
+		}
 		if err := s.Store.InsertAdoption(ctx, tx, adoption); err != nil {
 			return err
 		}
@@ -234,10 +237,11 @@ func (s Service) AdoptConclusion(ctx context.Context, actor domain.Principal, in
 			return err
 		}
 		updated, err := application.Transition(domain.ApplicationAdopted, now)
-		if err == nil {
-			if err := s.Store.UpdateApplication(ctx, tx, updated, application.Version); err != nil {
-				return err
-			}
+		if err != nil {
+			return err
+		}
+		if err := s.Store.UpdateApplication(ctx, tx, updated, application.Version); err != nil {
+			return err
 		}
 		event, err := s.auditEvent(ctx, actor, "adoption.create", "regional_adoption", adoption.ID, adoption.PolicyRef, nil, adoption)
 		if err != nil {

@@ -483,6 +483,71 @@ func TestReviewPublishAdoptAndRevokeEndToEnd(t *testing.T) {
 	}
 }
 
+// TestAdoptionRejectsAlreadyAdoptedApplication guards against a regression where a regional
+// reviewer could re-issue the adoption flow for a conclusion whose application had already been
+// adopted. The duplicate call must not create a second adoption record or push the candidate
+// variety lifecycle forward again.
+func TestAdoptionRejectsAlreadyAdoptedApplication(t *testing.T) {
+	f := newServiceFixture(t)
+	result := f.submit(t, "duplicate-adoption")
+	f.qualifyAndPlan(t, result.Application.ID)
+	seed, plot := f.seedResources(t, result.Variety.ID, "duplicate-adoption")
+	if _, err := f.service.AllocateResources(context.Background(), f.custodian, AllocateInput{
+		ApplicationID: result.Application.ID, SeedLotID: seed.ID, PlotSeasonID: plot.ID, SeedGrams: 150, PolicyRef: "POLICY-ALLOCATE",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.StartTrial(context.Background(), f.staff, result.Application.ID, "POLICY-START"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.LockApplicationData(context.Background(), f.staff, result.Application.ID, "POLICY-LOCK"); err != nil {
+		t.Fatal(err)
+	}
+	for index, expert := range []domain.Principal{f.expertA, f.expertB} {
+		if _, err := f.service.SubmitReview(audit.WithRequestID(context.Background(), fmt.Sprintf("review-%d", index)), expert, SubmitReviewInput{
+			ApplicationID: result.Application.ID, Decision: domain.ReviewRecommend,
+			Rationale:     "专家核对多站点数据后确认候选品种表现达到区域采用标准",
+			PolicyRef:     "POLICY-REVIEW",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conclusion, err := f.service.DraftConclusion(context.Background(), f.expertA, DraftConclusionInput{
+		ApplicationID: result.Application.ID, Decision: domain.ReviewRecommend,
+		Summary:   "综合两个独立专家的复核意见与锁定观测数据，建议在北部区域按政策采用该品种",
+		PolicyRef: "POLICY-CONCLUSION",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.PublishConclusion(context.Background(), f.expertA, conclusion.ID); err != nil {
+		t.Fatal(err)
+	}
+	adoptInput := AdoptInput{
+		ConclusionID: conclusion.ID, InstitutionID: f.planner.InstitutionID,
+		Region: "north", PolicyRef: "POLICY-ADOPT",
+	}
+	if _, err := f.service.AdoptConclusion(context.Background(), f.planner, adoptInput); err != nil {
+		t.Fatalf("first adoption: %v", err)
+	}
+	// A second planner at a different institution re-issues the same adoption flow. This must be
+	// rejected instead of creating a duplicate adoption record and re-advancing the lifecycle.
+	otherPlanner := f.addUser(t, "planner-dup", "regional-office-dup", domain.RoleRegionalPlanner, "north")
+	if _, err := f.service.AdoptConclusion(context.Background(), otherPlanner, AdoptInput{
+		ConclusionID: conclusion.ID, InstitutionID: otherPlanner.InstitutionID,
+		Region: "north", PolicyRef: "POLICY-ADOPT",
+	}); !errors.Is(err, apperror.ErrInvalidState) {
+		t.Fatalf("duplicate adoption error = %v, want ErrInvalidState", err)
+	}
+	application, err := f.db.GetApplication(context.Background(), nil, result.Application.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.Status != domain.ApplicationAdopted {
+		t.Fatalf("application status = %s, want adopted", application.Status)
+	}
+}
+
 func TestReviewQuorumAndInstitutionSeparation(t *testing.T) {
 	f := newServiceFixture(t)
 	result := f.submit(t, "review-separation")

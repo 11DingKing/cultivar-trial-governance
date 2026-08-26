@@ -36,7 +36,7 @@ var applicationTransitions = map[ApplicationStatus]map[ApplicationStatus]bool{
 	ApplicationDataLocked:   {ApplicationUnderReview: true},
 	ApplicationUnderReview:  {ApplicationPublished: true, ApplicationRevoked: true},
 	ApplicationPublished:    {ApplicationAdopted: true, ApplicationRevoked: true},
-	ApplicationAdopted:      {ApplicationAdopted: true, ApplicationRevoked: true},
+	ApplicationAdopted:      {ApplicationRevoked: true},
 	ApplicationRejected:     {},
 	ApplicationCancelled:    {},
 	ApplicationRevoked:      {},
