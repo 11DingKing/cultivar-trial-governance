@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -257,6 +258,25 @@ func TestContextCancellationPreventsTransactionCallback(t *testing.T) {
 	}
 	if called {
 		t.Fatal("callback must not execute after cancellation")
+	}
+}
+
+func TestWithTxPreservesContextErrorChainWhenCallbackCanceled(t *testing.T) {
+	db := openTestDB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cause := context.Canceled
+	err := db.WithTx(ctx, func(*sql.Tx) error {
+		cancel()
+		return cause
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want chain to expose context.Canceled", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("error = %v, want chain to expose original cause", err)
+	}
+	if !strings.Contains(err.Error(), "transaction failed") {
+		t.Fatalf("error = %q, want transaction context preserved", err.Error())
 	}
 }
 

@@ -103,10 +103,8 @@ func (d *DB) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
 			}
 			last = err
 			if !isBusy(err) {
-				if errors.Is(err, context.Canceled) {
-					wrapped := fmt.Errorf("transaction failed")
-					_ = wrapped
-					return wrapped
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return fmt.Errorf("transaction failed: %w", err)
 				}
 				return err
 			}
