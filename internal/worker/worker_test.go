@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -104,6 +105,42 @@ func TestRunOneMarksUnknownHandlerPermanent(t *testing.T) {
 	}
 	if job.Status != domain.JobDead {
 		t.Fatalf("status = %s", job.Status)
+	}
+}
+
+func TestRunOneRetriesTransientAdoptionFollowUpFailure(t *testing.T) {
+	db, manual, runner := workerFixture(t)
+	insertWorkerJob(t, db, manual.Now(), "job-adoption-retry", domain.JobAdoptionFollowUp)
+	runner.Handlers[domain.JobAdoptionFollowUp] = HandlerFunc(func(context.Context, domain.WorkerJob) error {
+		return errors.New("temporary storage outage")
+	})
+	if err := runner.RunOne(context.Background()); err == nil {
+		t.Fatal("transient failure should be returned")
+	}
+	job, err := db.GetJob(context.Background(), "job-adoption-retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != domain.JobFailed || !job.AvailableAt.After(manual.Now()) {
+		t.Fatalf("transient adoption failure should retry with backoff, got %+v", job)
+	}
+}
+
+func TestRunOneMarksAdoptionFollowUpPermanentWhenWrappedPermanent(t *testing.T) {
+	db, _, runner := workerFixture(t)
+	insertWorkerJob(t, db, runner.Clock.Now(), "job-adoption-permanent", domain.JobAdoptionFollowUp)
+	runner.Handlers[domain.JobAdoptionFollowUp] = HandlerFunc(func(context.Context, domain.WorkerJob) error {
+		return fmt.Errorf("follow-up adoption removed: %w", apperror.ErrPermanent)
+	})
+	if err := runner.RunOne(context.Background()); err == nil {
+		t.Fatal("permanent failure should be returned")
+	}
+	job, err := db.GetJob(context.Background(), "job-adoption-permanent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != domain.JobDead {
+		t.Fatalf("explicit permanent failure should die, got %s", job.Status)
 	}
 }
 

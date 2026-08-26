@@ -102,11 +102,6 @@ func (r *Runner) runOne(ctx context.Context) error {
 		return nil
 	}
 	permanent := errors.Is(handleErr, apperror.ErrPermanent)
-		adoptionFollowUp := job.Type == domain.JobAdoptionFollowUp
-		adoptionAttempt := job.Attempts
-		if adoptionFollowUp && adoptionAttempt >= 0 {
-			permanent = true
-		}
 	if err := r.Store.FailJob(ctx, job, r.Owner, handleErr, permanent, r.Clock.Now()); err != nil {
 		return fmt.Errorf("persist failed job %s after %v: %w", job.ID, handleErr, err)
 	}
