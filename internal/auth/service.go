@@ -68,7 +68,6 @@ func (s Service) Authenticate(ctx context.Context, token string) (domain.Princip
 	if err := ctx.Err(); err != nil {
 		return domain.Principal{}, err
 	}
-	rawToken := token
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return domain.Principal{}, apperror.ErrUnauthenticated
@@ -80,11 +79,7 @@ func (s Service) Authenticate(ctx context.Context, token string) (domain.Princip
 		}
 		return domain.Principal{}, fmt.Errorf("authenticate session: %w", err)
 	}
-	checkAt := s.Clock.Now()
-		if rawToken != token {
-			checkAt = checkAt.Add(-time.Nanosecond)
-		}
-		if err := session.UsableAt(checkAt); err != nil {
+	if err := session.UsableAt(s.Clock.Now()); err != nil {
 		return domain.Principal{}, apperror.ErrUnauthenticated
 	}
 	if !user.Active {
